@@ -1,0 +1,490 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "factoryName": {
+      "type": "string",
+      "metadata": "Data Factory name",
+      "defaultValue": "adf-food-delivery-sasank"
+    },
+    "ls_blob_source_properties_typeProperties_serviceEndpoint": {
+      "type": "string",
+      "defaultValue": "https://stfooddeliverysrc.blob.core.windows.net/"
+    },
+    "ls_adls_lake_properties_typeProperties_url": {
+      "type": "string",
+      "defaultValue": "https://stfooddeliverylake.dfs.core.windows.net/"
+    },
+    "ls_synapse_artifacts_properties_typeProperties_endpoint": {
+      "type": "string",
+      "defaultValue": "https://syn-food-delivery-dev.dev.azuresynapse.net"
+    },
+    "synapseWorkspaceResourceId": {
+      "type": "string"
+    }
+  },
+  "variables": {
+    "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+  },
+  "resources": [
+    {
+      "name": "[concat(parameters('factoryName'), '/SourceDataset_ilo')]",
+      "type": "Microsoft.DataFactory/factories/datasets",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "linkedServiceName": {
+          "referenceName": "ls_blob_source",
+          "type": "LinkedServiceReference"
+        },
+        "parameters": {
+          "file_name": {
+            "type": "string"
+          }
+        },
+        "annotations": [],
+        "type": "Binary",
+        "typeProperties": {
+          "location": {
+            "type": "AzureBlobStorageLocation",
+            "fileName": {
+              "value": "@dataset().file_name",
+              "type": "Expression"
+            },
+            "container": "incoming"
+          }
+        }
+      },
+      "dependsOn": [
+        "[concat(variables('factoryId'), '/linkedServices/ls_blob_source')]"
+      ]
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/DestinationDataset_ilo')]",
+      "type": "Microsoft.DataFactory/factories/datasets",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "linkedServiceName": {
+          "referenceName": "ls_adls_lake",
+          "type": "LinkedServiceReference"
+        },
+        "parameters": {
+          "file_name": {
+            "type": "string"
+          }
+        },
+        "annotations": [],
+        "type": "Binary",
+        "typeProperties": {
+          "location": {
+            "type": "AzureBlobFSLocation",
+            "fileName": {
+              "value": "@dataset().file_name",
+              "type": "Expression"
+            },
+            "folderPath": {
+              "value": "@replace(dataset().file_name, '.csv', '')",
+              "type": "Expression"
+            },
+            "fileSystem": "landing"
+          }
+        }
+      },
+      "dependsOn": [
+        "[concat(variables('factoryId'), '/linkedServices/ls_adls_lake')]"
+      ]
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ls_blob_source')]",
+      "type": "Microsoft.DataFactory/factories/linkedServices",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "annotations": [],
+        "type": "AzureBlobStorage",
+        "typeProperties": {
+          "serviceEndpoint": "[parameters('ls_blob_source_properties_typeProperties_serviceEndpoint')]",
+          "accountKind": "StorageV2"
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ls_adls_lake')]",
+      "type": "Microsoft.DataFactory/factories/linkedServices",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "annotations": [],
+        "type": "AzureBlobFS",
+        "typeProperties": {
+          "url": "[parameters('ls_adls_lake_properties_typeProperties_url')]"
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ls_synapse_artifacts')]",
+      "type": "Microsoft.DataFactory/factories/linkedServices",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "annotations": [],
+        "type": "AzureSynapseArtifacts",
+        "typeProperties": {
+          "endpoint": "[parameters('ls_synapse_artifacts_properties_typeProperties_endpoint')]",
+          "authentication": "MSI",
+          "workspaceResourceId": "[parameters('synapseWorkspaceResourceId')]"
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/pl_ingest_food')]",
+      "type": "Microsoft.DataFactory/factories/pipelines",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "activities": [
+          {
+            "name": "Copy_ilo",
+            "type": "Copy",
+            "dependsOn": [],
+            "policy": {
+              "timeout": "0.12:00:00",
+              "retry": 0,
+              "retryIntervalInSeconds": 30,
+              "secureOutput": false,
+              "secureInput": false
+            },
+            "userProperties": [
+              {
+                "name": "Source",
+                "value": "incoming//food.csv"
+              },
+              {
+                "name": "Destination",
+                "value": "landing/food/food.csv"
+              }
+            ],
+            "typeProperties": {
+              "source": {
+                "type": "BinarySource",
+                "storeSettings": {
+                  "type": "AzureBlobStorageReadSettings",
+                  "recursive": false,
+                  "deleteFilesAfterCompletion": false
+                },
+                "formatSettings": {
+                  "type": "BinaryReadSettings"
+                }
+              },
+              "sink": {
+                "type": "BinarySink",
+                "storeSettings": {
+                  "type": "AzureBlobFSWriteSettings"
+                }
+              },
+              "enableStaging": false,
+              "validateDataConsistency": false
+            },
+            "inputs": [
+              {
+                "referenceName": "SourceDataset_ilo",
+                "type": "DatasetReference",
+                "parameters": {
+                  "file_name": {
+                    "value": "@pipeline().parameters.file_name",
+                    "type": "Expression"
+                  }
+                }
+              }
+            ],
+            "outputs": [
+              {
+                "referenceName": "DestinationDataset_ilo",
+                "type": "DatasetReference",
+                "parameters": {
+                  "file_name": {
+                    "value": "@pipeline().parameters.file_name",
+                    "type": "Expression"
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "policy": {
+          "elapsedTimeMetric": {}
+        },
+        "parameters": {
+          "file_name": {
+            "type": "string",
+            "defaultValue": "food.csv"
+          }
+        },
+        "annotations": [],
+        "lastPublishTime": "2026-10-01T09:07:26Z"
+      },
+      "dependsOn": [
+        "[concat(variables('factoryId'), '/datasets/SourceDataset_ilo')]",
+        "[concat(variables('factoryId'), '/datasets/DestinationDataset_ilo')]"
+      ]
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/pl_ingest_all_files')]",
+      "type": "Microsoft.DataFactory/factories/pipelines",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "activities": [
+          {
+            "name": "ForEach1",
+            "type": "ForEach",
+            "dependsOn": [],
+            "userProperties": [],
+            "typeProperties": {
+              "items": {
+                "value": "@pipeline().parameters.files",
+                "type": "Expression"
+              },
+              "isSequential": true,
+              "activities": [
+                {
+                  "name": "Execute Pipeline1",
+                  "type": "ExecutePipeline",
+                  "dependsOn": [],
+                  "policy": {
+                    "secureInput": false
+                  },
+                  "userProperties": [],
+                  "typeProperties": {
+                    "pipeline": {
+                      "referenceName": "pl_ingest_food",
+                      "type": "PipelineReference"
+                    },
+                    "waitOnCompletion": true,
+                    "parameters": {
+                      "file_name": {
+                        "value": "@item()",
+                        "type": "Expression"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "TransformFoodDelivery",
+            "type": "SynapseNotebook",
+            "dependsOn": [
+              {
+                "activity": "ForEach1",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "policy": {
+              "timeout": "0.12:00:00",
+              "retry": 0,
+              "retryIntervalInSeconds": 30,
+              "secureOutput": false,
+              "secureInput": false
+            },
+            "userProperties": [],
+            "typeProperties": {
+              "notebook": {
+                "referenceName": {
+                  "value": "nb_01_bronze_silver",
+                  "type": "Expression"
+                },
+                "type": "NotebookReference"
+              },
+              "parameters": {
+                "ROOT": {
+                  "value": "abfss://landing@stfooddeliverylake.dfs.core.windows.net",
+                  "type": "string"
+                }
+              },
+              "snapshot": true,
+              "sparkPool": {
+                "referenceName": {
+                  "value": "sparkfooddev",
+                  "type": "Expression"
+                },
+                "type": "BigDataPoolReference"
+              },
+              "conf": {}
+            },
+            "linkedServiceName": {
+              "referenceName": "ls_synapse_artifacts",
+              "type": "LinkedServiceReference"
+            }
+          },
+          {
+            "name": "ValidateFoodDelivery",
+            "type": "SynapseNotebook",
+            "dependsOn": [
+              {
+                "activity": "TransformFoodDelivery",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "policy": {
+              "timeout": "0.12:00:00",
+              "retry": 0,
+              "retryIntervalInSeconds": 30,
+              "secureOutput": false,
+              "secureInput": false
+            },
+            "userProperties": [],
+            "typeProperties": {
+              "notebook": {
+                "referenceName": {
+                  "value": "nb_02_validate_silver",
+                  "type": "Expression"
+                },
+                "type": "NotebookReference"
+              },
+              "parameters": {
+                "ROOT": {
+                  "value": "abfss://landing@stfooddeliverylake.dfs.core.windows.net",
+                  "type": "string"
+                }
+              },
+              "snapshot": true,
+              "sparkPool": {
+                "referenceName": {
+                  "value": "sparkfooddev",
+                  "type": "Expression"
+                },
+                "type": "BigDataPoolReference"
+              },
+              "conf": {}
+            },
+            "linkedServiceName": {
+              "referenceName": "ls_synapse_artifacts",
+              "type": "LinkedServiceReference"
+            }
+          },
+          {
+            "name": "BuildGold",
+            "type": "SynapseNotebook",
+            "dependsOn": [
+              {
+                "activity": "ValidateFoodDelivery",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "policy": {
+              "timeout": "0.12:00:00",
+              "retry": 0,
+              "retryIntervalInSeconds": 30,
+              "secureOutput": false,
+              "secureInput": false
+            },
+            "userProperties": [],
+            "typeProperties": {
+              "notebook": {
+                "referenceName": {
+                  "value": "nb_03_build_gold",
+                  "type": "Expression"
+                },
+                "type": "NotebookReference"
+              },
+              "parameters": {
+                "ROOT": {
+                  "value": "abfss://landing@stfooddeliverylake.dfs.core.windows.net",
+                  "type": "string"
+                }
+              },
+              "snapshot": true,
+              "sparkPool": {
+                "referenceName": {
+                  "value": "sparkfooddev",
+                  "type": "Expression"
+                },
+                "type": "BigDataPoolReference"
+              },
+              "conf": {}
+            },
+            "linkedServiceName": {
+              "referenceName": "ls_synapse_artifacts",
+              "type": "LinkedServiceReference"
+            }
+          },
+          {
+            "name": "ValidateGold",
+            "type": "SynapseNotebook",
+            "dependsOn": [
+              {
+                "activity": "BuildGold",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "policy": {
+              "timeout": "0.12:00:00",
+              "retry": 0,
+              "retryIntervalInSeconds": 30,
+              "secureOutput": false,
+              "secureInput": false
+            },
+            "userProperties": [],
+            "typeProperties": {
+              "notebook": {
+                "referenceName": {
+                  "value": "nb_04_validate_gold",
+                  "type": "Expression"
+                },
+                "type": "NotebookReference"
+              },
+              "parameters": {
+                "ROOT": {
+                  "value": "abfss://landing@stfooddeliverylake.dfs.core.windows.net",
+                  "type": "string"
+                }
+              },
+              "snapshot": true,
+              "sparkPool": {
+                "referenceName": {
+                  "value": "sparkfooddev",
+                  "type": "Expression"
+                },
+                "type": "BigDataPoolReference"
+              },
+              "conf": {}
+            },
+            "linkedServiceName": {
+              "referenceName": "ls_synapse_artifacts",
+              "type": "LinkedServiceReference"
+            }
+          }
+        ],
+        "policy": {
+          "elapsedTimeMetric": {}
+        },
+        "parameters": {
+          "files": {
+            "type": "array",
+            "defaultValue": [
+              "food.csv",
+              "restaurant.csv",
+              "users.csv",
+              "menu.csv",
+              "order_items.csv",
+              "reviews.csv"
+            ]
+          }
+        },
+        "annotations": [],
+        "lastPublishTime": "2026-10-01T14:11:56Z"
+      },
+      "dependsOn": [
+        "[concat(variables('factoryId'), '/linkedServices/ls_synapse_artifacts')]",
+        "[concat(variables('factoryId'), '/pipelines/pl_ingest_food')]"
+      ]
+    }
+  ]
+}
